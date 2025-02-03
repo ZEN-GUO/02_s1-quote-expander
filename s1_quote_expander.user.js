@@ -1,22 +1,194 @@
 // ==UserScript==
-// @name         Stage1 Quote Expander
-// @name:zh-CN   Stage1论坛引用内容展开器
+// @name         Stage1 Quote Expander with API Support
+// @name:zh-CN   Stage1 论坛引用内容展开器 (带API支持)
 // @namespace    user-NITOUCHE
-// @version      0.1.1
+// @version      1.0.0
 // @description  Expands quote blocks on Stage1 forums to display full quoted post content.
 // @description:zh-CN  在 Stage1 论坛展开引用块，显示完整的被引用帖子内容。
 // @author       DS泥头车
 // @match        https://*.saraba1st.com/2b/thread-*
 // @icon         https://bbs.saraba1st.com/favicon.ico
 // @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
+// @require      https://cdn.staticfile.org/jquery/3.5.1/jquery.min.js
+// @require      https://cdn.staticfile.org/jsrender/1.0.8/jsrender.min.js
 // @license      MIT
 // @run-at       document-end
 // ==/UserScript==
 
 (function() {
     'use strict';
-    const quoteDivs = document.querySelectorAll('div.quote');
-    quoteDivs.forEach(quoteDiv => {
+
+    const $ = jQuery.noConflict();
+    const api = 'https://app.saraba1st.com/2b/api/app';
+    const dialogTmpl = $.templates(`
+        <div id="login-dialog" style="width: 400px; height: 260px; position: fixed; top: 50%; left: 50%; margin-left: -200px; margin-top: -130px; z-index: 999; background: #F6F7EB; border: 3px solid #CCCC99; padding-left: 20px;">
+            <div style="width: 100%; padding-top: 20px;">通过s1官方app接口查看不可见内容，需要单独登录</div>
+            <div style="width: 100%; padding-top: 20px"><input type="text" id="username" value="{{:username}}" placeholder="用户名"></div>
+            <div style="width: 100%; padding-top: 20px"><input type="password" id="password" value="{{:password}}" placeholder="密码"></div>
+            <div style="width: 100%; padding-top: 20px">
+                <select id="questionId">
+                    <option value="0">安全提问(未设置请忽略)</option>
+                    <option value="1">母亲的名字</option>
+                    <option value="2">爷爷的名字</option>
+                    <option value="3">父亲出生的城市</option>
+                    <option value="4">您其中一位老师的名字</option>
+                    <option value="5">您个人计算机的型号</option>
+                    <option value="6">您最喜欢的餐馆名称</option>
+                    <option value="7">驾驶执照最后四位数字</option>
+                </select>
+            </div>
+            <div id="answer-row" hidden>
+                <div style="width: 100%; padding-top: 20px"><input type="text" id="answer" placeholder="答案"></div>
+            </div>
+            <div style="width: 100%; padding-top: 20px"><button id="login-confirm">确定</button></div>
+            <div style="width: 100%; padding-top: 20px; color: red">{{:msg}}</div>
+        </div>`);
+    const postTmpl = $.templates(`
+        <div class="t_fsz">
+            <table cellspacing="0" cellpadding="0">
+                <tbody>
+                <tr>
+                    <td class="t_f" id="postmessage_{{:pid}}">
+                        {{:message}}
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+`);
+
+    function login(username, password, questionId, answer) {
+        const data = {
+            username: username,
+            password: password
+        }
+        if (questionId !== '0') {
+            data.questionid = questionId;
+            data.answer = answer;
+        }
+        $.ajax({
+            type: 'POST',
+            url: api + '/user/login',
+            data: data,
+            success: function (resp) {
+                const code = resp.code.toString();
+                if (code.startsWith('50')) {
+                    loginAndReplaceThreadContent({username, password, msg: resp.message});
+                    return;
+                }
+                localStorage.setItem('app_sid', resp.data.sid);
+                $('#login-dialog').remove();
+                // After successful login, re-process quotes to fetch content via API if needed
+                processAllQuotes(); // Call function to re-process quotes
+            },
+            error: function (err) {
+                loginAndReplaceThreadContent({username, password, msg: '请求错误'});
+            }
+        });
+    }
+
+    function loginAndReplaceThreadContent(data) {
+        $('#login-dialog').remove();
+        $('body').append(dialogTmpl.render(data));
+        const rawHeight = $('#login-dialog').height();
+        $('#questionId').change(function () {
+            let questionId = $(this).val();
+            if (questionId === '0') {
+                $('#login-dialog').height(rawHeight);
+                $('#answer-row').hide();
+            } else {
+                $('#login-dialog').height(rawHeight + 44);
+                $('#answer-row').show();
+            }
+        });
+        $('#login-confirm').click(function () {
+            const username = $('#username').val();
+            const password = $('#password').val();
+            const questionId = $('#questionId').val();
+            const answer = $('#answer').val();
+            login(username, password, questionId, answer);
+        });
+    }
+
+    function handleRequest(resp, resolve, reject) {
+        resp = typeof resp === 'string' ? JSON.parse(resp) : resp;
+        const code = resp.code.toString();
+        if (code.startsWith('50')) {
+            localStorage.removeItem('app_sid');
+            reject();
+            return;
+        }
+        resolve(resp.data);
+    }
+
+    let sid = localStorage.getItem('app_sid');
+
+    function fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid) { // **ptid is now expected as an argument**
+        if (!sid) {
+            loginAndReplaceThreadContent({msg: "需要登录S1 App账号才能查看被禁言内容"});
+            blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">需要登录S1 App账号</span>';
+            return;
+        }
+
+        if (!ptid) { // **Important check: Ensure ptid is actually passed**
+            blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">无法获取主题ID</span>';
+            console.error("无法获取主题ID (ptid) - ptid was not passed to fetchQuoteContentFromAPI correctly.");
+            return;
+        }
+
+        $.ajax({
+            type: 'POST',
+            url: api + '/thread/page',
+            data: {
+                sid: sid,
+                tid: ptid, // **Use the ptid argument passed to the function**
+                pageNo: 1
+            },
+            success: function (resp) {
+                const code = resp.code.toString();
+                if (code.startsWith('50')) {
+                    localStorage.removeItem('app_sid');
+                    loginAndReplaceThreadContent({msg: resp.message});
+                    blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API请求失败，请重新登录</span>';
+                    return;
+                }
+                const postList = resp.data.list;
+                let foundPostData = null;
+                for (const post of postList) {
+                    if (post.pid.toString() === pid) {
+                        foundPostData = post;
+                        break;
+                    }
+                }
+
+                console.log("API Response (resp):", resp);
+                console.log("API Response Data (postList):", postList);
+                console.log("Found Post Data for PID", pid, ":", foundPostData);
+
+
+                if (foundPostData && foundPostData.message) {
+                    const renderedContent = postTmpl.render(foundPostData);
+                    let newBlockquoteHTML = '';
+                    if (quoteHeaderHTML) {
+                        newBlockquoteHTML += quoteHeaderHTML + '<br>';
+                    }
+                    newBlockquoteHTML += renderedContent;
+                    blockquote.innerHTML = newBlockquoteHTML;
+                } else {
+                    blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API内容为空或未找到PID</span>';
+                    console.warn("API returned empty content or PID not found for pid:", pid, "in thread page API response");
+                }
+            },
+            error: function (err) {
+                blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API请求出错</span>';
+                console.error("API request error:", err);
+            }
+        });
+    }
+
+
+    function processQuoteDiv(quoteDiv) {
         const blockquote = quoteDiv.querySelector('blockquote');
         if (!blockquote) return;
         const quoteText = blockquote.textContent.trim();
@@ -26,8 +198,10 @@
             const postLink = linkElement.href;
             const urlParams = new URLSearchParams(new URL(postLink).search);
             const pid = urlParams.get('pid');
-            if (pid) {
-                // **1. 提前提取引用头 HTML (使用更直接的选择器)**
+            const ptid = urlParams.get('ptid');
+            console.log("Debug processQuoteDiv - ptid:", ptid, "pid:", pid, "postLink:", postLink); // **Debug Log - Keep this line for debugging**
+            if (pid && ptid) {
+                // 1. 提前提取引用头 HTML
                 let quoteHeaderHTML = '';
                 try {
                     const quoteHeaderElement = quoteDiv.querySelector('blockquote > font[size="2"]');
@@ -35,9 +209,8 @@
                         quoteHeaderHTML = quoteHeaderElement.outerHTML;
                     }
                 } catch (error) {
-                    console.warn("Error extracting quote header:", error); // 捕获并输出引用头提取错误
+                    console.warn("Error extracting quote header:", error);
                 }
-
                 blockquote.innerHTML = '<span style="color: var(--quote-loading-color, grey);">加载中...</span>';
                 GM_xmlhttpRequest({
                     url: postLink,
@@ -48,39 +221,62 @@
                             const doc = parser.parseFromString(response.responseText, 'text/html');
                             const postContentSelector = '#postmessage_' + pid;
                             const originalPostContentElement = doc.querySelector(postContentSelector);
-
                             if (originalPostContentElement) {
                                 const fullPostContentHTML = originalPostContentElement.innerHTML;
-
-                                // **2. 构建新的 blockquote 内容**
                                 let newBlockquoteHTML = '';
                                 if (quoteHeaderHTML) {
                                     newBlockquoteHTML += quoteHeaderHTML + '<br>';
                                 }
                                 newBlockquoteHTML += fullPostContentHTML;
-
-                                // **3. 设置新的 blockquote 内容**
                                 blockquote.innerHTML = newBlockquoteHTML;
-
                             } else {
-                                blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">未能加载完整内容 (找不到 #postmessage_pid)</span>';
-                                console.warn('未能找到 #postmessage_pid 元素:', postLink, '选择器:', postContentSelector);
+                                // If GM_xmlhttpRequest fails to find content, try API
+                                fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid); //  <--  **修正后的调用，传递 ptid**
                             }
                         } else {
-                            blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">加载失败</span>';
+                            // If GM_xmlhttpRequest fails (e.g., 404, 500), try API
+                            fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid); //  <--  **这里也要确保传递 ptid**
                         }
                     },
                     onerror: function(error) {
-                        blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">加载出错</span>';
+                        // If GM_xmlhttpRequest errors out, try API
+                        fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid); //  <--  **这里也要确保传递 ptid**
                     }
                 });
+            } else {
+                blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">无法获取帖子或主题ID</span>';
+                console.error("无法获取帖子或主题ID from link:", postLink);
             }
         }
-    });
+    }
+
+    function processAllQuotes() {
+        const quoteDivs = document.querySelectorAll('div.quote');
+        quoteDivs.forEach(processQuoteDiv);
+    }
+
+    processAllQuotes(); // Initial processing of quotes on page load
+
+
     GM_addStyle(`
         :root {
             --quote-loading-color: grey;
             --quote-error-color: red;
         }
+        /* Optional: Copy CSS from "查看S1不可见内容" script here if you want login dialog styles */
+        #login-dialog {
+            width: 400px; height: 260px; position: fixed; top: 50%; left: 50%; margin-left: -200px; margin-top: -130px; z-index: 999; background: #F6F7EB; border: 3px solid #CCCC99; padding-left: 20px;
+        }
+        #login-dialog div {
+            width: 100%; padding-top: 20px;
+        }
+        #login-dialog input[type="text"], #login-dialog input[type="password"], #login-dialog select {
+            width: calc(100% - 20px); padding: 8px; margin: 0; box-sizing: border-box;
+        }
+        #login-dialog button {
+            padding: 8px 15px; cursor: pointer;
+        }
+
     `);
+
 })();
