@@ -2,7 +2,7 @@
 // @name         Stage1 Quote Expander with API Support
 // @name:zh-CN   Stage1 论坛引用内容展开器 (带API支持)
 // @namespace    user-NITOUCHE
-// @version      1.0.0
+// @version      1.0.1
 // @description  Expands quote blocks on Stage1 forums to display full quoted post content.
 // @description:zh-CN  在 Stage1 论坛展开引用块，显示完整的被引用帖子内容。
 // @author       DS泥头车
@@ -175,6 +175,9 @@
                     }
                     newBlockquoteHTML += renderedContent;
                     blockquote.innerHTML = newBlockquoteHTML;
+
+                    processAllQuotes();
+
                 } else {
                     blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API内容为空或未找到PID</span>';
                     console.warn("API returned empty content or PID not found for pid:", pid, "in thread page API response");
