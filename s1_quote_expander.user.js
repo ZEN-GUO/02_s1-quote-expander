@@ -27,15 +27,16 @@
             const urlParams = new URLSearchParams(new URL(postLink).search);
             const pid = urlParams.get('pid');
             if (pid) {
-
-                // **-- 策略 1: 提前提取引用头 HTML --**
+                // **1. 提前提取引用头 HTML (使用更直接的选择器)**
                 let quoteHeaderHTML = '';
-                const firstChild = blockquote.firstChild;
-                if (firstChild && firstChild.nodeName === 'FONT' && firstChild.getAttribute('size') === '2') {
-                    quoteHeaderHTML = firstChild.outerHTML;
+                try {
+                    const quoteHeaderElement = quoteDiv.querySelector('blockquote > font[size="2"]');
+                    if (quoteHeaderElement) {
+                        quoteHeaderHTML = quoteHeaderElement.outerHTML;
+                    }
+                } catch (error) {
+                    console.warn("Error extracting quote header:", error); // 捕获并输出引用头提取错误
                 }
-                console.log("提前提取 Quote Header HTML:", quoteHeaderHTML); // **Debug Log - 提前提取**
-
 
                 blockquote.innerHTML = '<span style="color: var(--quote-loading-color, grey);">加载中...</span>';
                 GM_xmlhttpRequest({
@@ -47,9 +48,9 @@
                             const doc = parser.parseFromString(response.responseText, 'text/html');
                             const postContentSelector = '#postmessage_' + pid;
                             const originalPostContentElement = doc.querySelector(postContentSelector);
+
                             if (originalPostContentElement) {
                                 const fullPostContentHTML = originalPostContentElement.innerHTML;
-
 
                                 // **2. 构建新的 blockquote 内容**
                                 let newBlockquoteHTML = '';
@@ -67,12 +68,10 @@
                             }
                         } else {
                             blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">加载失败</span>';
-                            console.error('加载原帖失败:', postLink, response.status, response.statusText);
                         }
                     },
                     onerror: function(error) {
                         blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">加载出错</span>';
-                        console.error('加载原帖出错:', postLink, error);
                     }
                 });
             }
