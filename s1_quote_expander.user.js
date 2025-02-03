@@ -2,7 +2,7 @@
 // @name         Stage1 Quote Expander with API Support
 // @name:zh-CN   Stage1 论坛引用内容展开器 (带API支持)
 // @namespace    user-NITOUCHE
-// @version      1.0.1
+// @version      1.1.0
 // @description  Expands quote blocks on Stage1 forums to display full quoted post content.
 // @description:zh-CN  在 Stage1 论坛展开引用块，显示完整的被引用帖子内容。
 // @author       DS泥头车
@@ -18,7 +18,6 @@
 
 (function() {
     'use strict';
-
     const $ = jQuery.noConflict();
     const api = 'https://app.saraba1st.com/2b/api/app';
     const dialogTmpl = $.templates(`
@@ -44,18 +43,15 @@
             <div style="width: 100%; padding-top: 20px"><button id="login-confirm">确定</button></div>
             <div style="width: 100%; padding-top: 20px; color: red">{{:msg}}</div>
         </div>`);
+
+    // **Modified postTmpl:  Simplified to render only message content**
     const postTmpl = $.templates(`
-        <div class="t_fsz">
-            <table cellspacing="0" cellpadding="0">
-                <tbody>
-                <tr>
-                    <td class="t_f" id="postmessage_{{:pid}}">
-                        {{:message}}
-                    </td>
-                </tr>
-                </tbody>
-            </table>
-        </div>
+        {{:message}}
+        {{if errorMessage}}
+            <div style="color: var(--quote-error-color, red); font-size: smaller; margin-top: 5px;">
+                <b>加载失败:</b> {{:errorMessage}}
+            </div>
+        {{/if}}
 `);
 
     function login(username, password, questionId, answer) {
@@ -124,15 +120,20 @@
 
     let sid = localStorage.getItem('app_sid');
 
-    function fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid) { // **ptid is now expected as an argument**
+    function fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalQuoteContent) { // **`originalQuoteContent` parameter**
         if (!sid) {
             loginAndReplaceThreadContent({msg: "需要登录S1 App账号才能查看被禁言内容"});
-            blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">需要登录S1 App账号</span>';
+            // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">需要登录S1 App账号</span>'; // Removed direct error message setting - No longer setting "加载中..." here
+            // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">加载中...</span>'; // Removed "加载中..." feedback
+
+            renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "需要登录S1 App账号");
             return;
         }
 
-        if (!ptid) { // **Important check: Ensure ptid is actually passed**
-            blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">无法获取主题ID</span>';
+        if (!ptid) {
+            // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">无法获取主题ID</span>'; // Removed direct error message setting
+            // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">加载中...</span>'; // Removed "加载中..." feedback
+            renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "无法获取主题ID");
             console.error("无法获取主题ID (ptid) - ptid was not passed to fetchQuoteContentFromAPI correctly.");
             return;
         }
@@ -142,7 +143,7 @@
             url: api + '/thread/page',
             data: {
                 sid: sid,
-                tid: ptid, // **Use the ptid argument passed to the function**
+                tid: ptid,
                 pageNo: 1
             },
             success: function (resp) {
@@ -150,7 +151,9 @@
                 if (code.startsWith('50')) {
                     localStorage.removeItem('app_sid');
                     loginAndReplaceThreadContent({msg: resp.message});
-                    blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API请求失败，请重新登录</span>';
+                    // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API请求失败，请重新登录</span>'; // Removed direct error message setting
+                    // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">加载中...</span>'; // Removed "加载中..." feedback
+                    renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "API请求失败，请重新登录");
                     return;
                 }
                 const postList = resp.data.list;
@@ -166,28 +169,45 @@
                 console.log("API Response Data (postList):", postList);
                 console.log("Found Post Data for PID", pid, ":", foundPostData);
 
-
                 if (foundPostData && foundPostData.message) {
                     const renderedContent = postTmpl.render(foundPostData);
-                    let newBlockquoteHTML = '';
-                    if (quoteHeaderHTML) {
-                        newBlockquoteHTML += quoteHeaderHTML + '<br>';
-                    }
-                    newBlockquoteHTML += renderedContent;
-                    blockquote.innerHTML = newBlockquoteHTML;
+                    // let newBlockquoteHTML = '';  // No longer needed
+                    // if (quoteHeaderHTML) {      // No longer needed
+                    //     newBlockquoteHTML += quoteHeaderHTML + '<br>'; // No longer needed
+                    // }                                                 // No longer needed
+                    // newBlockquoteHTML += renderedContent;              // No longer needed
+                    // blockquote.innerHTML = newBlockquoteHTML;          // No longer needed
+
+                    blockquote.innerHTML = quoteHeaderHTML + '<br>' + renderedContent; // **Directly set innerHTML, combining header and rendered content**
+
 
                     processAllQuotes();
 
                 } else {
-                    blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API内容为空或未找到PID</span>';
+                    // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API内容为空或未找到PID</span>'; // Removed direct error message setting
+                    // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">API内容为空或未找到PID</span>'; // Removed "加载中..." feedback
+                    renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "API内容为空或未找到PID");
                     console.warn("API returned empty content or PID not found for pid:", pid, "in thread page API response");
                 }
             },
             error: function (err) {
-                blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API请求出错</span>';
+                // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API请求出错</span>'; // Removed direct error message setting
+                // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">API请求出错</span>'; // Removed "加载中..." feedback
+                renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "API请求出错");
                 console.error("API request error:", err);
             }
         });
+    }
+
+
+    function renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, errorMessage) {
+        let newBlockquoteHTML = '';
+        if (quoteHeaderHTML) {
+            newBlockquoteHTML += quoteHeaderHTML + '<br>';
+        }
+        // Render postTmpl with originalQuoteContent as message and errorMessage
+        newBlockquoteHTML += postTmpl.render({ message: originalQuoteContent, errorMessage: errorMessage });
+        blockquote.innerHTML = newBlockquoteHTML;
     }
 
 
@@ -202,7 +222,7 @@
             const urlParams = new URLSearchParams(new URL(postLink).search);
             const pid = urlParams.get('pid');
             const ptid = urlParams.get('ptid');
-            console.log("Debug processQuoteDiv - ptid:", ptid, "pid:", pid, "postLink:", postLink); // **Debug Log - Keep this line for debugging**
+            console.log("Debug processQuoteDiv - ptid:", ptid, "pid:", pid, "postLink:", postLink);
             if (pid && ptid) {
                 // 1. 提前提取引用头 HTML
                 let quoteHeaderHTML = '';
@@ -214,7 +234,10 @@
                 } catch (error) {
                     console.warn("Error extracting quote header:", error);
                 }
-                blockquote.innerHTML = '<span style="color: var(--quote-loading-color, grey);">加载中...</span>';
+                const originalBlockquoteContent = blockquote.innerHTML; // **Capture original content here**
+
+                // blockquote.innerHTML = '<span style="color: var(--quote-loading-color, grey);">加载中...</span>'; // Removed "加载中..." message
+
                 GM_xmlhttpRequest({
                     url: postLink,
                     method: 'GET',
@@ -226,24 +249,28 @@
                             const originalPostContentElement = doc.querySelector(postContentSelector);
                             if (originalPostContentElement) {
                                 const fullPostContentHTML = originalPostContentElement.innerHTML;
-                                let newBlockquoteHTML = '';
-                                if (quoteHeaderHTML) {
-                                    newBlockquoteHTML += quoteHeaderHTML + '<br>';
-                                }
-                                newBlockquoteHTML += fullPostContentHTML;
-                                blockquote.innerHTML = newBlockquoteHTML;
+                                // let newBlockquoteHTML = '';  // No longer needed
+                                // if (quoteHeaderHTML) {      // No longer needed
+                                //     newBlockquoteHTML += quoteHeaderHTML + '<br>'; // No longer needed
+                                // }                                                 // No longer needed
+                                // newBlockquoteHTML += fullPostContentHTML;          // No longer needed
+                                // blockquote.innerHTML = newBlockquoteHTML;          // No longer needed
+
+                                blockquote.innerHTML = quoteHeaderHTML + '<br>' + fullPostContentHTML; // **Directly set innerHTML, combining header and full content**
+
+
                             } else {
                                 // If GM_xmlhttpRequest fails to find content, try API
-                                fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid); //  <--  **修正后的调用，传递 ptid**
+                                fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalBlockquoteContent);
                             }
                         } else {
                             // If GM_xmlhttpRequest fails (e.g., 404, 500), try API
-                            fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid); //  <--  **这里也要确保传递 ptid**
+                            fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalBlockquoteContent);
                         }
                     },
                     onerror: function(error) {
                         // If GM_xmlhttpRequest errors out, try API
-                        fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid); //  <--  **这里也要确保传递 ptid**
+                        fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalBlockquoteContent);
                     }
                 });
             } else {
@@ -279,7 +306,6 @@
         #login-dialog button {
             padding: 8px 15px; cursor: pointer;
         }
-
     `);
 
 })();
