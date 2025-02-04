@@ -2,7 +2,7 @@
 // @name         Stage1 Quote Expander with API Support
 // @name:zh-CN   Stage1 论坛引用内容展开器 (带API支持)
 // @namespace    user-NITOUCHE
-// @version      1.1.0
+// @version      1.2.0
 // @description  Expands quote blocks on Stage1 forums to display full quoted post content.
 // @description:zh-CN  在 Stage1 论坛展开引用块，显示完整的被引用帖子内容。
 // @author       DS泥头车
@@ -226,18 +226,33 @@
             if (pid && ptid) {
                 // 1. 提前提取引用头 HTML
                 let quoteHeaderHTML = '';
+                let originalQuoteContent = '';
                 try {
-                    const quoteHeaderElement = quoteDiv.querySelector('blockquote > font[size="2"]');
-                    if (quoteHeaderElement) {
-                        quoteHeaderHTML = quoteHeaderElement.outerHTML;
-                    }
+                    const headerElements = blockquote.querySelectorAll('font[size="2"]');
+                    const tempBlockquote = blockquote.cloneNode(true); // Clone before header extraction
+    
+                    headerElements.forEach(headerElement => {
+                        quoteHeaderHTML += headerElement.outerHTML + '<br>';
+                    });
+    
+                    // Remove header elements from the cloned blockquote
+                    headerElements.forEach(headerElement => {
+                        if (headerElement.parentNode && headerElement.parentNode.nextSibling && headerElement.parentNode.nextSibling.nodeName === 'BR') {
+                            tempBlockquote.removeChild(headerElement.parentNode.nextSibling); // Remove <br> after <font>
+                        }
+                        tempBlockquote.removeChild(headerElement.parentNode); // Remove <font> parent
+                    });
+    
+    
+                    originalQuoteContent = tempBlockquote.innerHTML.trim();
+    
+    
                 } catch (error) {
                     console.warn("Error extracting quote header:", error);
+                    originalQuoteContent = blockquote.innerHTML.trim(); // Fallback to original content on error
                 }
-                const originalBlockquoteContent = blockquote.innerHTML; // **Capture original content here**
-
-                // blockquote.innerHTML = '<span style="color: var(--quote-loading-color, grey);">加载中...</span>'; // Removed "加载中..." message
-
+    
+    
                 GM_xmlhttpRequest({
                     url: postLink,
                     method: 'GET',
@@ -248,29 +263,24 @@
                             const postContentSelector = '#postmessage_' + pid;
                             const originalPostContentElement = doc.querySelector(postContentSelector);
                             if (originalPostContentElement) {
-                                const fullPostContentHTML = originalPostContentElement.innerHTML;
-                                // let newBlockquoteHTML = '';  // No longer needed
-                                // if (quoteHeaderHTML) {      // No longer needed
-                                //     newBlockquoteHTML += quoteHeaderHTML + '<br>'; // No longer needed
-                                // }                                                 // No longer needed
-                                // newBlockquoteHTML += fullPostContentHTML;          // No longer needed
-                                // blockquote.innerHTML = newBlockquoteHTML;          // No longer needed
-
-                                blockquote.innerHTML = quoteHeaderHTML + '<br>' + fullPostContentHTML; // **Directly set innerHTML, combining header and full content**
-
-
+                                let fullPostContentHTML = originalPostContentElement.innerHTML;
+                                // **Remove leading <br> and whitespace from fullPostContentHTML**
+                                fullPostContentHTML = fullPostContentHTML.replace(/^(\s*<br\s*\/?>\s*)+/, '');
+                                blockquote.innerHTML = quoteHeaderHTML + '<br>' + fullPostContentHTML; // **Directly set innerHTML for success**
+                                processAllQuotes(); // **Re-process all quotes after successful expansion**
+    
                             } else {
                                 // If GM_xmlhttpRequest fails to find content, try API
-                                fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalBlockquoteContent);
+                                fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalQuoteContent);
                             }
                         } else {
                             // If GM_xmlhttpRequest fails (e.g., 404, 500), try API
-                            fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalBlockquoteContent);
+                            fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalQuoteContent);
                         }
                     },
                     onerror: function(error) {
                         // If GM_xmlhttpRequest errors out, try API
-                        fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalBlockquoteContent);
+                        fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalQuoteContent);
                     }
                 });
             } else {
