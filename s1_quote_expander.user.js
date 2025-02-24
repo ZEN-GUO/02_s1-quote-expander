@@ -52,7 +52,7 @@
                 <b>加载失败:</b> {{:errorMessage}}
             </div>
         {{/if}}
-`);
+    `);
 
     function login(username, password, questionId, answer) {
         const data = {
@@ -120,19 +120,14 @@
 
     let sid = localStorage.getItem('app_sid');
 
-    function fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalQuoteContent) { // **`originalQuoteContent` parameter**
+    function fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalQuoteContent) {
         if (!sid) {
             loginAndReplaceThreadContent({msg: "需要登录S1 App账号才能查看被禁言内容"});
-            // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">需要登录S1 App账号</span>'; // Removed direct error message setting - No longer setting "加载中..." here
-            // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">加载中...</span>'; // Removed "加载中..." feedback
-
             renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "需要登录S1 App账号");
             return;
         }
 
         if (!ptid) {
-            // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">无法获取主题ID</span>'; // Removed direct error message setting
-            // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">加载中...</span>'; // Removed "加载中..." feedback
             renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "无法获取主题ID");
             console.error("无法获取主题ID (ptid) - ptid was not passed to fetchQuoteContentFromAPI correctly.");
             return;
@@ -151,8 +146,6 @@
                 if (code.startsWith('50')) {
                     localStorage.removeItem('app_sid');
                     loginAndReplaceThreadContent({msg: resp.message});
-                    // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API请求失败，请重新登录</span>'; // Removed direct error message setting
-                    // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">加载中...</span>'; // Removed "加载中..." feedback
                     renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "API请求失败，请重新登录");
                     return;
                 }
@@ -171,28 +164,15 @@
 
                 if (foundPostData && foundPostData.message) {
                     const renderedContent = postTmpl.render(foundPostData);
-                    // let newBlockquoteHTML = '';  // No longer needed
-                    // if (quoteHeaderHTML) {      // No longer needed
-                    //     newBlockquoteHTML += quoteHeaderHTML + '<br>'; // No longer needed
-                    // }                                                 // No longer needed
-                    // newBlockquoteHTML += renderedContent;              // No longer needed
-                    // blockquote.innerHTML = newBlockquoteHTML;          // No longer needed
-
                     blockquote.innerHTML = quoteHeaderHTML + '<br>' + renderedContent; // **Directly set innerHTML, combining header and rendered content**
-
-
                     processAllQuotes();
 
                 } else {
-                    // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API内容为空或未找到PID</span>'; // Removed direct error message setting
-                    // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">API内容为空或未找到PID</span>'; // Removed "加载中..." feedback
                     renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "API内容为空或未找到PID");
                     console.warn("API returned empty content or PID not found for pid:", pid, "in thread page API response");
                 }
             },
             error: function (err) {
-                // blockquote.innerHTML = '<span style="color: var(--quote-error-color, red);">API请求出错</span>'; // Removed direct error message setting
-                // blockquote.innerHTML = originalQuoteContent + '<br><span style="color: var(--quote-error-color, red);">API请求出错</span>'; // Removed "加载中..." feedback
                 renderBlockquoteWithError(blockquote, quoteHeaderHTML, originalQuoteContent, "API请求出错");
                 console.error("API request error:", err);
             }
@@ -230,11 +210,11 @@
                 try {
                     const headerElements = blockquote.querySelectorAll('font[size="2"]');
                     const tempBlockquote = blockquote.cloneNode(true); // Clone before header extraction
-    
+
                     headerElements.forEach(headerElement => {
                         quoteHeaderHTML += headerElement.outerHTML + '<br>';
                     });
-    
+
                     // Remove header elements from the cloned blockquote
                     headerElements.forEach(headerElement => {
                         if (headerElement.parentNode && headerElement.parentNode.nextSibling && headerElement.parentNode.nextSibling.nodeName === 'BR') {
@@ -242,17 +222,17 @@
                         }
                         tempBlockquote.removeChild(headerElement.parentNode); // Remove <font> parent
                     });
-    
-    
+
+
                     originalQuoteContent = tempBlockquote.innerHTML.trim();
-    
-    
+
+
                 } catch (error) {
                     console.warn("Error extracting quote header:", error);
                     originalQuoteContent = blockquote.innerHTML.trim(); // Fallback to original content on error
                 }
-    
-    
+
+
                 GM_xmlhttpRequest({
                     url: postLink,
                     method: 'GET',
@@ -268,7 +248,7 @@
                                 fullPostContentHTML = fullPostContentHTML.replace(/^(\s*<br\s*\/?>\s*)+/, '');
                                 blockquote.innerHTML = quoteHeaderHTML + '<br>' + fullPostContentHTML; // **Directly set innerHTML for success**
                                 processAllQuotes(); // **Re-process all quotes after successful expansion**
-    
+
                             } else {
                                 // If GM_xmlhttpRequest fails to find content, try API
                                 fetchQuoteContentFromAPI(pid, blockquote, quoteHeaderHTML, ptid, originalQuoteContent);
@@ -295,8 +275,7 @@
         quoteDivs.forEach(processQuoteDiv);
     }
 
-    processAllQuotes(); // Initial processing of quotes on page load
-
+    processAllQuotes(); // Initial processing of quotes on page load. Ask if this line still needed.
 
     GM_addStyle(`
         :root {
