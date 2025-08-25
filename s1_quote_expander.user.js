@@ -6,8 +6,8 @@
 // @description  Expands quote blocks on Stage1 forums to display full quoted post content.
 // @description:zh-CN  在 Stage1 论坛展开引用块，显示完整的被引用帖子内容。
 // @author       DS泥头车
-// @match        https://*.saraba1st.com/2b/thread-*
-// @icon         https://bbs.saraba1st.com/favicon.ico
+// @match        https://*.stage1st.com/2b/thread-*
+// @icon         https://bbs.stage1st.com/favicon.ico
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @require      https://cdn.staticfile.org/jquery/3.5.1/jquery.min.js
